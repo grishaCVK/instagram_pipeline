@@ -1,7 +1,18 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def get_bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return value.lower() in ("1", "true", "yes", "y", "on")
+
 
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
 GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v25.0")
@@ -20,7 +31,12 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "instagram_embeddings")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
 
-BACKFILL_START_DATE: str = os.getenv("BACKFILL_START_DATE") or ""
+BACKFILL_MODE = get_bool_env("BACKFILL_MODE", False)
+BACKFILL_START_DATE = os.getenv("BACKFILL_START_DATE") or None
+BACKFILL_END_DATE = os.getenv("BACKFILL_END_DATE") or None
+BACKFILL_BATCH_DAYS = int(
+    os.getenv("BACKFILL_BATCH_DAYS", "3")
+)
 
 
 def validate_config():
@@ -30,7 +46,6 @@ def validate_config():
         "AD_ACCOUNT_ID": AD_ACCOUNT_ID,
         "CLICKHOUSE_HOST": CLICKHOUSE_HOST,
         "POSTGRES_HOST": POSTGRES_HOST,
-        "BACKFILL_START_DATE": BACKFILL_START_DATE,
     }
 
     missing = [name for name, value in required.items() if not value]
@@ -39,3 +54,11 @@ def validate_config():
         raise ValueError(
             f"Missing required env variables: {', '.join(missing)}"
         )
+
+    if BACKFILL_MODE and not BACKFILL_START_DATE:
+        raise ValueError(
+            "BACKFILL_START_DATE is required when BACKFILL_MODE=true"
+        )
+
+    if BACKFILL_BATCH_DAYS <= 0:
+        raise ValueError("BACKFILL_BATCH_DAYS must be greater than 0")

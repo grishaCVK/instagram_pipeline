@@ -849,21 +849,59 @@ def write_paid_ads_tables(
         print(f"{table_name}: inserted {len(rows)} rows")
 
 
-def main() -> None:
+def iter_date_batches(
+    start_date: str,
+    end_date: str,
+    batch_days: int,
+) -> list[tuple[str, str]]:
     """
-    Главная функция pipeline.
+    Делит большой период на батчи.
 
-    Делает полный цикл:
-    1. Проверяет config.
-    2. Забирает Ads Insights из Meta API.
-    3. Сохраняет сырой JSON в raw_data.
-    4. Форматирует данные.
-    5. Раскладывает данные по paid_ads_* таблицам.
+    Например:
+    2025-12-01 -> 2026-05-18
+    batch_days = 3
+
+    Получим:
+    2025-12-01 -> 2025-12-03
+    2025-12-04 -> 2025-12-06
+    ...
     """
-    config.validate_config()
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
 
-    date_since = "2026-04-30"
-    date_until = "2026-05-09"
+    batches: list[tuple[str, str]] = []
+    current_start = start
+
+    while current_start <= end:
+        current_end = min(
+            current_start + timedelta(days=batch_days - 1),
+            end,
+        )
+
+        batches.append(
+            (
+                current_start.isoformat(),
+                current_end.isoformat(),
+            )
+        )
+
+        current_start = current_end + timedelta(days=1)
+
+    return batches
+
+
+def run_pipeline_for_period(
+    date_since: str,
+    date_until: str,
+) -> list[dict[str, Any]]:
+    """
+    Запускает pipeline за один период.
+
+    Используется:
+    - для обычного ежедневного запуска
+    - для backfill по батчам
+    """
+    print(f"Start period: {date_since} -> {date_until}")
 
     ads_insights_response = graph_api.get_ads_insights(
         date_since=date_since,
@@ -891,10 +929,12 @@ def main() -> None:
 
     ads_insights_rows = ads_insights_response.get("data", [])
     daily_reach_rows = daily_reach_response.get("data", [])
+
     daily_reach_by_key = build_daily_reach_by_key(daily_reach_rows)
     daily_frequency_by_key = build_daily_frequency_by_key(
         daily_reach_rows
     )
+
     ad_ids = [
         row["ad_id"]
         for row in ads_insights_rows
@@ -913,16 +953,12 @@ def main() -> None:
         if row.get("campaign_id")
     ]
 
-    media_info_by_ad_id = (
-        graph_api.get_media_info_for_ads(
-            ad_ids
-        )
+    media_info_by_ad_id = graph_api.get_media_info_for_ads(ad_ids)
+
+    adset_info_by_adset_id = graph_api.get_adset_details_for_adsets(
+        adset_ids
     )
-    adset_info_by_adset_id = (
-        graph_api.get_adset_details_for_adsets(
-            adset_ids
-        )
-    )
+
     campaign_info_by_campaign_id = (
         graph_api.get_campaign_details_for_campaigns(
             campaign_ids
@@ -942,6 +978,77 @@ def main() -> None:
         grouped_rows=grouped_rows,
         date_since=date_since,
         date_until=date_until,
+    )
+
+    print(f"Finished period: {date_since} -> {date_until}")
+
+    return ads_insights_rows
+
+
+def main() -> None:
+    """
+    Основной запуск pipeline.
+
+    BACKFILL_MODE = True:
+        загружает исторические данные батчами.
+
+    BACKFILL_MODE = False:
+        обычный ежедневный запуск за вчера.
+    """
+    config.validate_config()
+
+    backfill_mode = config.BACKFILL_MODE
+
+    if backfill_mode:
+        date_since = config.BACKFILL_START_DATE
+        date_until = (
+            config.BACKFILL_END_DATE
+            or datetime.now(ALMATY_TZ).date().isoformat()
+        )
+        batch_days = config.BACKFILL_BATCH_DAYS
+
+        all_unique_ad_rows_by_id: dict[str, dict[str, Any]] = {}
+
+        batches = iter_date_batches(
+            start_date=date_since,
+            end_date=date_until,
+            batch_days=batch_days,
+        )
+
+        print(
+            f"Backfill started: {date_since} -> {date_until}, "
+            f"batches: {len(batches)}"
+        )
+
+        for batch_since, batch_until in batches:
+            ads_insights_rows = run_pipeline_for_period(
+                date_since=batch_since,
+                date_until=batch_until,
+            )
+
+            for row in ads_insights_rows:
+                ad_id = row.get("ad_id")
+
+                if ad_id:
+                    all_unique_ad_rows_by_id[ad_id] = row
+
+        print(
+            "Backfill paid tables finished. "
+            f"Unique ads for embeddings: {len(all_unique_ad_rows_by_id)}"
+        )
+
+        embeddings.process_ads_insights_image_embeddings(
+            list(all_unique_ad_rows_by_id.values())
+        )
+
+        print("Backfill finished")
+        return
+
+    yesterday = get_yesterday()
+
+    ads_insights_rows = run_pipeline_for_period(
+        date_since=yesterday,
+        date_until=yesterday,
     )
 
     embeddings.process_ads_insights_image_embeddings(ads_insights_rows)

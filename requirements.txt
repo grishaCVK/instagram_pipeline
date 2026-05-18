@@ -1,11 +1,13 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.7.0+cpu
+sentence-transformers
+
 python-dotenv
 requests
 clickhouse-connect
 psycopg[binary]
 pgvector
 pillow
-opencv-python
+opencv-python-headless
 numpy
-sentence-transformers
-torch
-pillow

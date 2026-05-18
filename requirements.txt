@@ -1,0 +1,11 @@
+python-dotenv
+requests
+clickhouse-connect
+psycopg[binary]
+pgvector
+pillow
+opencv-python
+numpy
+sentence-transformers
+torch
+pillow

@@ -1,0 +1,41 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
+GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v25.0")
+AD_ACCOUNT_ID = os.getenv("AD_ACCOUNT_ID")
+INSTAGRAM_ACCOUNT_ID = os.getenv("INSTAGRAM_ACCOUNT_ID")
+
+CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
+CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "instagram_ads")
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
+
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "instagram_embeddings")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+
+BACKFILL_START_DATE: str = os.getenv("BACKFILL_START_DATE") or ""
+
+
+def validate_config():
+    required = {
+        "META_ACCESS_TOKEN": META_ACCESS_TOKEN,
+        "GRAPH_API_VERSION": GRAPH_API_VERSION,
+        "AD_ACCOUNT_ID": AD_ACCOUNT_ID,
+        "CLICKHOUSE_HOST": CLICKHOUSE_HOST,
+        "POSTGRES_HOST": POSTGRES_HOST,
+        "BACKFILL_START_DATE": BACKFILL_START_DATE,
+    }
+
+    missing = [name for name, value in required.items() if not value]
+
+    if missing:
+        raise ValueError(
+            f"Missing required env variables: {', '.join(missing)}"
+        )

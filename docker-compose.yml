@@ -1,0 +1,41 @@
+services:
+  app:
+    build: .
+    container_name: instagram_pipeline_app
+    env_file:
+      - .env
+    depends_on:
+      - clickhouse
+      - postgres
+    volumes:
+      - ./storage:/app/storage
+    command: python main.py
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: instagram_ads
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: postgres_pgvector
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: instagram_embeddings
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  clickhouse_data:
+  postgres_data:

@@ -110,7 +110,7 @@ def get_latest_ads_insights_data() -> list[dict[str, Any]]:
 
 
 PAID_TABLE_COLUMNS = {
-    "paid_ads_awareness": [
+    "paid_ads_awareness_hourly_ad_level": [
         "date_start",
         "date_stop",
         "campaign_id",
@@ -163,7 +163,7 @@ PAID_TABLE_COLUMNS = {
         "budget_remaining",
         "loaded_at",
     ],
-    "paid_ads_traffic": [
+    "paid_ads_traffic_hourly_ad_level": [
         "date_start",
         "date_stop",
         "campaign_id",
@@ -218,7 +218,7 @@ PAID_TABLE_COLUMNS = {
         "budget_remaining",
         "loaded_at",
     ],
-    "paid_ads_engagement": [
+    "paid_ads_engagement_hourly_ad_level": [
         "date_start",
         "date_stop",
         "campaign_id",
@@ -277,7 +277,7 @@ PAID_TABLE_COLUMNS = {
         "cost_per_post_engagement",
         "loaded_at",
     ],
-    "paid_ads_leads": [
+    "paid_ads_leads_hourly_ad_level": [
         "date_start",
         "date_stop",
         "campaign_id",
@@ -333,7 +333,7 @@ PAID_TABLE_COLUMNS = {
         "cost_per_lead",
         "loaded_at",
     ],
-    "paid_ads_app_promotion": [
+    "paid_ads_app_promotion_hourly_ad_level": [
         "date_start",
         "date_stop",
         "campaign_id",
@@ -390,7 +390,7 @@ PAID_TABLE_COLUMNS = {
         "mobile_app_purchase",
         "loaded_at",
     ],
-    "paid_ads_sales": [
+    "paid_ads_sales_hourly_ad_level": [
         "date_start",
         "date_stop",
         "campaign_id",
@@ -452,6 +452,70 @@ PAID_TABLE_COLUMNS = {
         "loaded_at",
     ],
 }
+
+PAID_ADS_GEO_DAILY_TABLE = "paid_ads_geo_daily_level"
+
+PAID_ADS_GEO_DAILY_COLUMNS = [
+    "date_start",
+    "date_stop",
+
+    "campaign_id",
+    "campaign_name",
+    "adset_id",
+    "adset_name",
+    "ad_id",
+    "ad_name",
+    "objective",
+
+    "country",
+    "region",
+
+    "spend",
+    "impressions",
+    "reach",
+    "frequency",
+    "cpm",
+
+    "clicks",
+    "inline_link_clicks",
+    "ctr",
+
+    "loaded_at",
+]
+
+
+PAID_ADS_DEVICE_DAILY_TABLE = "paid_ads_device_daily_level"
+
+PAID_ADS_DEVICE_DAILY_COLUMNS = [
+    "date_start",
+    "date_stop",
+
+    "campaign_id",
+    "campaign_name",
+    "adset_id",
+    "adset_name",
+    "ad_id",
+    "ad_name",
+    "objective",
+
+    "device_platform",
+    "impression_device",
+
+    "device_type",
+    "os_type",
+
+    "spend",
+    "impressions",
+    "reach",
+    "frequency",
+    "cpm",
+
+    "clicks",
+    "inline_link_clicks",
+    "ctr",
+
+    "loaded_at",
+]
 
 
 def delete_paid_ads_for_period(
@@ -521,4 +585,78 @@ def insert_paid_ads_rows(
         table_name,
         rows,
         column_names=PAID_TABLE_COLUMNS[table_name],
+    )
+
+
+def delete_paid_ads_geo_daily_for_period(
+    date_since: str,
+    date_until: str,
+) -> None:
+    client = get_client()
+
+    query = f"""
+        ALTER TABLE instagram_ads.{PAID_ADS_GEO_DAILY_TABLE}
+        DELETE WHERE date_start >= toDate({{date_since:String}})
+        AND date_start <= toDate({{date_until:String}})
+    """
+
+    client.command(
+        query,
+        parameters={
+            "date_since": date_since,
+            "date_until": date_until,
+        },
+        settings={"mutations_sync": 1},
+    )
+
+
+def insert_paid_ads_geo_daily_rows(
+    rows: list[list],
+) -> None:
+    if not rows:
+        return
+
+    client = get_client()
+
+    client.insert(
+        PAID_ADS_GEO_DAILY_TABLE,
+        rows,
+        column_names=PAID_ADS_GEO_DAILY_COLUMNS,
+    )
+
+
+def delete_paid_ads_device_daily_for_period(
+    date_since: str,
+    date_until: str,
+) -> None:
+    client = get_client()
+
+    query = f"""
+        ALTER TABLE instagram_ads.{PAID_ADS_DEVICE_DAILY_TABLE}
+        DELETE WHERE date_start >= toDate({{date_since:String}})
+        AND date_start <= toDate({{date_until:String}})
+    """
+
+    client.command(
+        query,
+        parameters={
+            "date_since": date_since,
+            "date_until": date_until,
+        },
+        settings={"mutations_sync": 1},
+    )
+
+
+def insert_paid_ads_device_daily_rows(
+    rows: list[list],
+) -> None:
+    if not rows:
+        return
+
+    client = get_client()
+
+    client.insert(
+        PAID_ADS_DEVICE_DAILY_TABLE,
+        rows,
+        column_names=PAID_ADS_DEVICE_DAILY_COLUMNS,
     )

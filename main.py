@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any
@@ -77,6 +78,61 @@ def make_reach_key(
         str(row.get("adset_id", "")),
         str(row.get("ad_id", "")),
     )
+
+
+def to_json_or_none(value: Any) -> str | None:
+    if value in (None, [], {}):
+        return None
+
+    return json.dumps(value, ensure_ascii=False)
+
+
+def normalize_device_type(
+    device_platform: str | None,
+    impression_device: str | None,
+) -> str:
+    platform = str(device_platform or "").lower()
+    device = str(impression_device or "").lower()
+
+    if "desktop" in platform or "desktop" in device:
+        return "pc"
+
+    if "tablet" in device or "ipad" in device:
+        return "tablet"
+
+    if (
+        "mobile" in platform
+        or "phone" in device
+        or "iphone" in device
+        or "smartphone" in device
+        or "android" in device
+    ):
+        return "phone"
+
+    return "unknown"
+
+
+def normalize_os_type(
+    impression_device: str | None,
+) -> str:
+    device = str(impression_device or "").lower()
+
+    if "android" in device:
+        return "android"
+
+    if "iphone" in device or "ipad" in device or "ios" in device:
+        return "ios"
+
+    if "windows" in device:
+        return "windows"
+
+    if "mac" in device:
+        return "macos"
+
+    if "desktop" in device:
+        return "desktop_unknown"
+
+    return "unknown"
 
 
 def build_daily_reach_by_key(
@@ -424,22 +480,22 @@ def get_target_table(objective: str) -> str | None:
     ]
 
     if objective in awareness_objectives:
-        return "paid_ads_awareness"
+        return "paid_ads_awareness_hourly_ad_level"
 
     if objective in traffic_objectives:
-        return "paid_ads_traffic"
+        return "paid_ads_traffic_hourly_ad_level"
 
     if objective in engagement_objectives:
-        return "paid_ads_engagement"
+        return "paid_ads_engagement_hourly_ad_level"
 
     if objective in leads_objectives:
-        return "paid_ads_leads"
+        return "paid_ads_leads_hourly_ad_level"
 
     if objective in app_promotion_objectives:
-        return "paid_ads_app_promotion"
+        return "paid_ads_app_promotion_hourly_ad_level"
 
     if objective in sales_objectives:
-        return "paid_ads_sales"
+        return "paid_ads_sales_hourly_ad_level"
 
     return None
 
@@ -722,6 +778,109 @@ def build_table_row(
     return [data.get(column) for column in columns]
 
 
+def build_geo_daily_row(
+    row: dict[str, Any],
+) -> list[Any]:
+    data = {
+        "date_start": date.fromisoformat(row["date_start"]),
+        "date_stop": date.fromisoformat(row["date_stop"]),
+
+        "campaign_id": row.get("campaign_id", ""),
+        "campaign_name": row.get("campaign_name"),
+        "adset_id": row.get("adset_id", ""),
+        "adset_name": row.get("adset_name"),
+        "ad_id": row.get("ad_id", ""),
+        "ad_name": row.get("ad_name"),
+        "objective": row.get("objective"),
+
+        "country": row.get("country"),
+        "region": row.get("region"),
+
+        "spend": to_float(row.get("spend")),
+        "impressions": to_int(row.get("impressions")) or 0,
+        "reach": to_int(row.get("reach")),
+        "frequency": to_float(row.get("frequency")),
+        "cpm": to_float(row.get("cpm")),
+
+        "clicks": to_int(row.get("clicks")) or 0,
+        "inline_link_clicks": to_int(row.get("inline_link_clicks")),
+        "ctr": to_float(row.get("ctr")),
+
+        "loaded_at": datetime.now(ALMATY_TZ),
+    }
+
+    return [
+        data.get(column)
+        for column in clickhouse_db.PAID_ADS_GEO_DAILY_COLUMNS
+    ]
+
+
+def build_device_daily_row(
+    row: dict[str, Any],
+) -> list[Any]:
+    device_platform = row.get("device_platform")
+    impression_device = row.get("impression_device")
+
+    data = {
+        "date_start": date.fromisoformat(row["date_start"]),
+        "date_stop": date.fromisoformat(row["date_stop"]),
+
+        "campaign_id": row.get("campaign_id", ""),
+        "campaign_name": row.get("campaign_name"),
+        "adset_id": row.get("adset_id", ""),
+        "adset_name": row.get("adset_name"),
+        "ad_id": row.get("ad_id", ""),
+        "ad_name": row.get("ad_name"),
+        "objective": row.get("objective"),
+
+        "device_platform": device_platform,
+        "impression_device": impression_device,
+
+        "device_type": normalize_device_type(
+            device_platform=device_platform,
+            impression_device=impression_device,
+        ),
+        "os_type": normalize_os_type(
+            impression_device=impression_device,
+        ),
+
+        "spend": to_float(row.get("spend")),
+        "impressions": to_int(row.get("impressions")) or 0,
+        "reach": to_int(row.get("reach")),
+        "frequency": to_float(row.get("frequency")),
+        "cpm": to_float(row.get("cpm")),
+
+        "clicks": to_int(row.get("clicks")) or 0,
+        "inline_link_clicks": to_int(row.get("inline_link_clicks")),
+        "ctr": to_float(row.get("ctr")),
+
+        "loaded_at": datetime.now(ALMATY_TZ),
+    }
+
+    return [
+        data.get(column)
+        for column in clickhouse_db.PAID_ADS_DEVICE_DAILY_COLUMNS
+    ]
+
+
+def format_geo_daily_rows(
+    rows: list[dict[str, Any]],
+) -> list[list[Any]]:
+    return [
+        build_geo_daily_row(row)
+        for row in rows
+    ]
+
+
+def format_device_daily_rows(
+    rows: list[dict[str, Any]],
+) -> list[list[Any]]:
+    return [
+        build_device_daily_row(row)
+        for row in rows
+    ]
+
+
 def format_ads_insights_rows(
     ads_insights_rows: list[dict[str, Any]],
     media_info_by_ad_id: dict[str, dict[str, Any]],
@@ -823,6 +982,50 @@ def save_raw_daily_reach_response(
     )
 
 
+def save_raw_geo_daily_response(
+    response_data: dict[str, Any],
+    date_since: str,
+    date_until: str,
+) -> None:
+    clickhouse_db.insert_raw_data(
+        source="ads_insights_geo_daily",
+        api_type="ads_insights",
+        endpoint=f"/{config.AD_ACCOUNT_ID}/insights",
+        object_id=config.AD_ACCOUNT_ID,
+        response_data=response_data,
+        request_params={
+            "date_since": date_since,
+            "date_until": date_until,
+            "level": "ad",
+            "time_increment": 1,
+            "breakdowns": "country,region",
+            "limit": 100,
+        },
+    )
+
+
+def save_raw_device_daily_response(
+    response_data: dict[str, Any],
+    date_since: str,
+    date_until: str,
+) -> None:
+    clickhouse_db.insert_raw_data(
+        source="ads_insights_device_daily",
+        api_type="ads_insights",
+        endpoint=f"/{config.AD_ACCOUNT_ID}/insights",
+        object_id=config.AD_ACCOUNT_ID,
+        response_data=response_data,
+        request_params={
+            "date_since": date_since,
+            "date_until": date_until,
+            "level": "ad",
+            "time_increment": 1,
+            "breakdowns": "device_platform,impression_device",
+            "limit": 100,
+        },
+    )
+
+
 def write_paid_ads_tables(
     grouped_rows: dict[str, list[list[Any]]],
     date_since: str,
@@ -847,6 +1050,42 @@ def write_paid_ads_tables(
         )
 
         print(f"{table_name}: inserted {len(rows)} rows")
+
+
+def write_geo_daily_table(
+    rows: list[list[Any]],
+    date_since: str,
+    date_until: str,
+) -> None:
+    clickhouse_db.delete_paid_ads_geo_daily_for_period(
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    clickhouse_db.insert_paid_ads_geo_daily_rows(rows)
+
+    print(
+        f"{clickhouse_db.PAID_ADS_GEO_DAILY_TABLE}: "
+        f"inserted {len(rows)} rows"
+    )
+
+
+def write_device_daily_table(
+    rows: list[list[Any]],
+    date_since: str,
+    date_until: str,
+) -> None:
+    clickhouse_db.delete_paid_ads_device_daily_for_period(
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    clickhouse_db.insert_paid_ads_device_daily_rows(rows)
+
+    print(
+        f"{clickhouse_db.PAID_ADS_DEVICE_DAILY_TABLE}: "
+        f"inserted {len(rows)} rows"
+    )
 
 
 def iter_date_batches(
@@ -903,16 +1142,31 @@ def run_pipeline_for_period(
     """
     print(f"Start period: {date_since} -> {date_until}")
 
+    # 1. Основной paid ads insights по часам.
     ads_insights_response = graph_api.get_ads_insights(
         date_since=date_since,
         date_until=date_until,
     )
 
+    # 2. Daily reach/frequency без hourly breakdown.
     daily_reach_response = graph_api.get_ads_insights_daily_reach(
         date_since=date_since,
         date_until=date_until,
     )
 
+    # 3. Geo daily: country + region.
+    geo_daily_response = graph_api.get_ads_insights_geo_daily(
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    # 4. Device daily: device_platform + impression_device.
+    device_daily_response = graph_api.get_ads_insights_device_daily(
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    # 5. Сохраняем raw responses.
     save_raw_ads_insights(
         response_data=ads_insights_response,
         date_since=date_since,
@@ -925,16 +1179,33 @@ def run_pipeline_for_period(
         date_until=date_until,
     )
 
+    save_raw_geo_daily_response(
+        response_data=geo_daily_response,
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    save_raw_device_daily_response(
+        response_data=device_daily_response,
+        date_since=date_since,
+        date_until=date_until,
+    )
+
     print(f"Ads insights raw data saved from {date_since} to {date_until}")
 
+    # 6. Достаем строки из ответов.
     ads_insights_rows = ads_insights_response.get("data", [])
     daily_reach_rows = daily_reach_response.get("data", [])
+    geo_daily_rows = geo_daily_response.get("data", [])
+    device_daily_rows = device_daily_response.get("data", [])
 
+    # 7. Подготавливаем daily reach/frequency для hourly paid_ads_* таблиц.
     daily_reach_by_key = build_daily_reach_by_key(daily_reach_rows)
     daily_frequency_by_key = build_daily_frequency_by_key(
         daily_reach_rows
     )
 
+    # 8. Собираем id для дополнительных запросов по creatives/adsets/campaigns.
     ad_ids = [
         row["ad_id"]
         for row in ads_insights_rows
@@ -953,6 +1224,7 @@ def run_pipeline_for_period(
         if row.get("campaign_id")
     ]
 
+    # 9. Получаем дополнительные данные.
     media_info_by_ad_id = graph_api.get_media_info_for_ads(ad_ids)
 
     adset_info_by_adset_id = graph_api.get_adset_details_for_adsets(
@@ -965,6 +1237,7 @@ def run_pipeline_for_period(
         )
     )
 
+    # 10. Форматируем основные paid_ads_* таблицы.
     grouped_rows = format_ads_insights_rows(
         ads_insights_rows,
         media_info_by_ad_id,
@@ -974,8 +1247,31 @@ def run_pipeline_for_period(
         daily_frequency_by_key,
     )
 
+    # 11. Форматируем geo/device таблицы.
+    formatted_geo_daily_rows = format_geo_daily_rows(
+        geo_daily_rows
+    )
+
+    formatted_device_daily_rows = format_device_daily_rows(
+        device_daily_rows
+    )
+
+    # 12. Записываем основные paid_ads_* таблицы.
     write_paid_ads_tables(
         grouped_rows=grouped_rows,
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    # 13. Записываем geo/device таблицы.
+    write_geo_daily_table(
+        rows=formatted_geo_daily_rows,
+        date_since=date_since,
+        date_until=date_until,
+    )
+
+    write_device_daily_table(
+        rows=formatted_device_daily_rows,
         date_since=date_since,
         date_until=date_until,
     )

@@ -938,3 +938,81 @@ def get_ads_insights_daily_reach(
     }
 
     return graph_get_all_pages(endpoint, params)
+
+
+GEO_DEVICE_INSIGHTS_FIELDS = [
+    "date_start",
+    "date_stop",
+
+    "campaign_id",
+    "campaign_name",
+    "adset_id",
+    "adset_name",
+    "ad_id",
+    "ad_name",
+    "objective",
+
+    "spend",
+    "impressions",
+    "reach",
+    "frequency",
+    "cpm",
+
+    "clicks",
+    "inline_link_clicks",
+    "ctr",
+]
+
+
+def get_ads_insights_geo_daily(
+    date_since: str,
+    date_until: str,
+) -> dict:
+    """
+    Получает дневную статистику рекламы по country + region.
+
+    Это фактическая geo-статистика показов, а не настройки targeting.
+    """
+    endpoint = f"/{config.AD_ACCOUNT_ID}/insights"
+
+    time_range = {
+        "since": date_since,
+        "until": date_until,
+    }
+
+    params = {
+        "fields": ",".join(GEO_DEVICE_INSIGHTS_FIELDS),
+        "level": "ad",
+        "time_increment": 1,
+        "breakdowns": "country,region",
+        "limit": 100,
+        "time_range": json.dumps(time_range),
+    }
+
+    return graph_get_all_pages(endpoint, params)
+
+
+def get_ads_insights_device_daily(
+    date_since: str,
+    date_until: str,
+) -> dict:
+    """
+    Получает дневную статистику рекламы по device_platform + impression_device.
+    """
+    endpoint = f"/{config.AD_ACCOUNT_ID}/insights"
+
+    time_range = {
+        "since": date_since,
+        "until": date_until,
+    }
+
+    params = {
+        "fields": ",".join(GEO_DEVICE_INSIGHTS_FIELDS),
+        "level": "ad",
+        "time_increment": 1,
+        "breakdowns": "device_platform,impression_device",
+        "limit": 100,
+        "time_range": json.dumps(time_range),
+    }
+
+    return graph_get_all_pages(endpoint, params)

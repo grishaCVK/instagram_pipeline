@@ -17,7 +17,7 @@ ENGINE = MergeTree
 ORDER BY (source, fetched_at);
 
 
-CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_awareness
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_awareness_hourly_ad_level
 (
     date_start DateTime('Asia/Almaty'),
     date_stop DateTime('Asia/Almaty'),
@@ -86,7 +86,7 @@ ENGINE = MergeTree
 ORDER BY (date_start, campaign_id, adset_id, ad_id);
 
 
-CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_traffic
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_traffic_hourly_ad_level
 (
     date_start DateTime('Asia/Almaty'),
     date_stop DateTime('Asia/Almaty'),
@@ -158,7 +158,7 @@ ENGINE = MergeTree
 ORDER BY (date_start, campaign_id, adset_id, ad_id);
 
 
-CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_engagement
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_engagement_hourly_ad_level
 (
     date_start DateTime('Asia/Almaty'),
     date_stop DateTime('Asia/Almaty'),
@@ -235,7 +235,7 @@ ENGINE = MergeTree
 ORDER BY (date_start, campaign_id, adset_id, ad_id);
 
 
-CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_leads
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_leads_hourly_ad_level
 (
     date_start DateTime('Asia/Almaty'),
     date_stop DateTime('Asia/Almaty'),
@@ -308,7 +308,7 @@ ENGINE = MergeTree
 ORDER BY (date_start, campaign_id, adset_id, ad_id);
 
 
-CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_app_promotion
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_app_promotion_hourly_ad_level
 (
     date_start DateTime('Asia/Almaty'),
     date_stop DateTime('Asia/Almaty'),
@@ -382,7 +382,7 @@ ENGINE = MergeTree
 ORDER BY (date_start, campaign_id, adset_id, ad_id);
 
 
-CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_sales
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_sales_hourly_ad_level
 (
     date_start DateTime('Asia/Almaty'),
     date_stop DateTime('Asia/Almaty'),
@@ -461,3 +461,86 @@ CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_sales
 )
 ENGINE = MergeTree
 ORDER BY (date_start, campaign_id, adset_id, ad_id);
+
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_geo_daily_level
+(
+    date_start Date,
+    date_stop Date,
+
+    campaign_id String,
+    campaign_name Nullable(String),
+    adset_id String,
+    adset_name Nullable(String),
+    ad_id String,
+    ad_name Nullable(String),
+    objective Nullable(String),
+
+    country Nullable(String),
+    region Nullable(String),
+
+    spend Nullable(Float64),
+    impressions UInt64,
+    reach Nullable(UInt64),
+    frequency Nullable(Float64),
+    cpm Nullable(Float64),
+
+    clicks UInt64,
+    inline_link_clicks Nullable(UInt64),
+    ctr Nullable(Float64),
+
+    loaded_at DateTime('Asia/Almaty')
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(date_start)
+ORDER BY
+(
+    date_start,
+    campaign_id,
+    adset_id,
+    ad_id,
+    ifNull(country, ''),
+    ifNull(region, '')
+);
+
+CREATE TABLE IF NOT EXISTS instagram_ads.paid_ads_device_daily_level
+(
+    date_start Date,
+    date_stop Date,
+
+    campaign_id String,
+    campaign_name Nullable(String),
+    adset_id String,
+    adset_name Nullable(String),
+    ad_id String,
+    ad_name Nullable(String),
+    objective Nullable(String),
+
+    device_platform Nullable(String),
+    impression_device Nullable(String),
+
+    device_type LowCardinality(String),
+    os_type LowCardinality(String),
+
+    spend Nullable(Float64),
+    impressions UInt64,
+    reach Nullable(UInt64),
+    frequency Nullable(Float64),
+    cpm Nullable(Float64),
+
+    clicks UInt64,
+    inline_link_clicks Nullable(UInt64),
+    ctr Nullable(Float64),
+
+    loaded_at DateTime('Asia/Almaty')
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(date_start)
+ORDER BY
+(
+    date_start,
+    campaign_id,
+    adset_id,
+    ad_id,
+    ifNull(device_platform, ''),
+    ifNull(impression_device, '')
+);

@@ -248,7 +248,10 @@ def process_ads_insights_image_embeddings(
         try:
             image_assets = get_image_assets_for_ad(ad_id)
         except Exception as error:
-            print(f"{ad_id}: failed to get media assets, skipped, error={error}")
+            print(
+                f"{ad_id}: failed to get media assets, "
+                f"skipped, error={error}"
+            )
             continue
 
         if not image_assets:

@@ -6,32 +6,23 @@ instagram_core_loader.py
           geo_daily, device_daily, gender_daily
 """
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import clickhouse_connect
 
 import config
 import etl_logger as instagram_etl_logger
+from clickhouse_db import (
+    DAILY_TABLES,
+    DEVICE_TABLE,
+    GEO_TABLE,
+    GENDER_TABLE,
+    HOURLY_TABLES,
+)
 
-ALMATY_TZ = ZoneInfo("Asia/Almaty")
 STAGING_DB = config.CLICKHOUSE_STAGING_DB
 CORE_DB = config.CLICKHOUSE_CORE_DB
 
-OBJECTIVES = [
-    "awareness", "traffic", "engagement",
-    "leads", "app_promotion", "sales",
-]
-
-HOURLY_STAGING_TABLES = [
-    f"paid_ads_{obj}_hourly_ad_level_staging"
-    for obj in OBJECTIVES
-]
-
-DAILY_STAGING_TABLES = [
-    f"paid_ads_{obj}_daily_ad_level_staging"
-    for obj in OBJECTIVES
-]
+HOURLY_STAGING_TABLES = list(HOURLY_TABLES.values())
+DAILY_STAGING_TABLES = list(DAILY_TABLES.values())
 
 
 def _get_client(database: str):
@@ -80,25 +71,20 @@ def _union_daily_staging(
     date_since: str,
     date_until: str,
 ) -> str:
-    """UNION ALL всех 6 daily staging таблиц."""
-    parts = []
-    for table in DAILY_STAGING_TABLES:
-        parts.append(
-            select_sql.format(
-                db=STAGING_DB,
-                table=table,
-                date_since=date_since,
-                date_until=date_until,
-            )
+    parts = [
+        select_sql.format(
+            db=STAGING_DB,
+            table=table,
+            date_since=date_since,
+            date_until=date_until,
         )
+        for table in DAILY_STAGING_TABLES
+    ]
     return "\nUNION ALL\n".join(parts)
 
 
 # ============================================================
 # 1. instagram_ads_core_daily_campaign_level
-# Источник: daily_staging — GROUP BY date + campaign
-# reach/frequency из daily API (корректны)
-# cost_per_link_clicks = spend / inline_link_clicks
 # ============================================================
 
 def load_daily_campaign(
@@ -115,8 +101,7 @@ def load_daily_campaign(
     )
     _delete(client, CORE_DB, table, date_since, date_until)
 
-    # Агрегация по кампании за день
-    _inner_sql = (
+    _inner = (
         "SELECT"
         " toDate(date_start) AS d_start,"
         " campaign_id AS c_id,"
@@ -148,10 +133,10 @@ def load_daily_campaign(
     )
 
     union_sql = _union_daily_staging(
-        _inner_sql, date_since, date_until
+        _inner, date_since, date_until
     )
 
-    _outer_sql = (
+    _outer = (
         "SELECT"
         " d_start AS date_start,"
         " d_start + INTERVAL 1 DAY AS date_stop,"
@@ -169,7 +154,8 @@ def load_daily_campaign(
         " max(s_reach) AS reach,"
         " avg(s_freq) AS frequency,"
         " if(sum(s_impr)>0,"
-        "    sum(s_spend)/sum(s_impr)*1000, NULL) AS cpm,"
+        "    sum(s_spend)/sum(s_impr)*1000,"
+        "    NULL) AS cpm,"
         " sum(s_clicks) AS clicks,"
         " sum(s_lclicks) AS link_clicks,"
         " avg(s_lctr) AS link_ctr,"
@@ -186,15 +172,13 @@ def load_daily_campaign(
         " GROUP BY d_start, c_id"
     )
 
-    insert_sql = (
-        f"INSERT INTO {CORE_DB}.{table} " + _outer_sql
+    client.command(
+        f"INSERT INTO {CORE_DB}.{table} " + _outer
     )
-    client.command(insert_sql)
 
     rows_after = _count(
         client, CORE_DB, table, date_since, date_until
     )
-
     instagram_etl_logger.log_table_load(
         run_id=run_id,
         layer="core",
@@ -209,7 +193,6 @@ def load_daily_campaign(
         min_loaded_date=date_since,
         max_loaded_date=date_until,
     )
-
     instagram_etl_logger.run_quality_checks(
         run_id=run_id,
         database_name=CORE_DB,
@@ -218,7 +201,6 @@ def load_daily_campaign(
         date_until=date_until,
         key_columns=["date_start", "campaign_id"],
     )
-
     print(
         f"[CORE] {table}: "
         f"before={rows_before}, after={rows_after}"
@@ -228,7 +210,6 @@ def load_daily_campaign(
 
 # ============================================================
 # 2. instagram_ads_core_daily_ad_level
-# Источник: daily_staging — один ряд на (date + ad)
 # ============================================================
 
 def load_daily_ad(
@@ -267,7 +248,8 @@ def load_daily_ad(
         " reach,"
         " frequency,"
         " if(impressions>0,"
-        "    spend/impressions*1000, NULL) AS cpm,"
+        "    spend/impressions*1000,"
+        "    NULL) AS cpm,"
         " clicks,"
         " inline_link_clicks AS link_clicks,"
         " inline_link_click_ctr AS link_ctr,"
@@ -289,16 +271,13 @@ def load_daily_ad(
     union_sql = _union_daily_staging(
         _select, date_since, date_until
     )
-
-    insert_sql = (
+    client.command(
         f"INSERT INTO {CORE_DB}.{table} " + union_sql
     )
-    client.command(insert_sql)
 
     rows_after = _count(
         client, CORE_DB, table, date_since, date_until
     )
-
     instagram_etl_logger.log_table_load(
         run_id=run_id,
         layer="core",
@@ -313,7 +292,6 @@ def load_daily_ad(
         min_loaded_date=date_since,
         max_loaded_date=date_until,
     )
-
     instagram_etl_logger.run_quality_checks(
         run_id=run_id,
         database_name=CORE_DB,
@@ -322,7 +300,6 @@ def load_daily_ad(
         date_until=date_until,
         key_columns=["date_start", "campaign_id", "ad_id"],
     )
-
     print(
         f"[CORE] {table}: "
         f"before={rows_before}, after={rows_after}"
@@ -332,8 +309,6 @@ def load_daily_ad(
 
 # ============================================================
 # 3. instagram_ads_core_hourly_ad_level
-# Источник: hourly_staging (paid_ads_*_hourly_ad_level_staging)
-# Без reach/frequency
 # ============================================================
 
 def load_hourly_ad(
@@ -370,7 +345,8 @@ def load_hourly_ad(
         " spend,"
         " impressions,"
         " if(impressions>0,"
-        "    spend/impressions*1000, NULL) AS cpm,"
+        "    spend/impressions*1000,"
+        "    NULL) AS cpm,"
         " clicks,"
         " inline_link_clicks AS link_clicks,"
         " inline_link_click_ctr AS link_ctr,"
@@ -389,27 +365,23 @@ def load_hourly_ad(
         " AND toDate('{date_until}')"
     )
 
-    parts = []
-    for t in HOURLY_STAGING_TABLES:
-        parts.append(
-            _select.format(
-                db=STAGING_DB,
-                table=t,
-                date_since=date_since,
-                date_until=date_until,
-            )
+    parts = [
+        _select.format(
+            db=STAGING_DB,
+            table=t,
+            date_since=date_since,
+            date_until=date_until,
         )
+        for t in HOURLY_STAGING_TABLES
+    ]
     union_sql = "\nUNION ALL\n".join(parts)
-
-    insert_sql = (
+    client.command(
         f"INSERT INTO {CORE_DB}.{table} " + union_sql
     )
-    client.command(insert_sql)
 
     rows_after = _count(
         client, CORE_DB, table, date_since, date_until
     )
-
     instagram_etl_logger.log_table_load(
         run_id=run_id,
         layer="core",
@@ -424,7 +396,6 @@ def load_hourly_ad(
         min_loaded_date=date_since,
         max_loaded_date=date_until,
     )
-
     print(
         f"[CORE] {table}: "
         f"before={rows_before}, after={rows_after}"
@@ -433,9 +404,28 @@ def load_hourly_ad(
 
 
 # ============================================================
+# Helper: daily staging media_type lookup
+# ============================================================
+
+def _daily_media_lookup(
+    date_since: str,
+    date_until: str,
+) -> str:
+    parts = [
+        f"SELECT toDate(date_start) AS ds, "
+        f"ad_id, any(media_type) AS mt "
+        f"FROM {STAGING_DB}.{t} "
+        f"WHERE toDate(date_start) "
+        f"BETWEEN toDate('{date_since}') "
+        f"AND toDate('{date_until}') "
+        f"GROUP BY ds, ad_id"
+        for t in DAILY_STAGING_TABLES
+    ]
+    return " UNION ALL ".join(parts)
+
+
+# ============================================================
 # 4. instagram_ads_core_geo_daily_level
-# Источник: paid_ads_geo_daily_level_staging
-# media_type — JOIN с daily_ad staging по ad_id + date
 # ============================================================
 
 def load_geo_daily(
@@ -445,20 +435,6 @@ def load_geo_daily(
     date_until: str,
 ) -> int:
     table = "instagram_ads_core_geo_daily_level"
-    staging_geo = "paid_ads_geo_daily_level_staging"
-
-    # Строим lookup media_type из daily_ad staging
-    _daily_union = " UNION ALL ".join([
-        f"SELECT toDate(date_start) AS ds, ad_id, "
-        f"any(media_type) AS mt "
-        f"FROM {STAGING_DB}.{t} "
-        f"WHERE toDate(date_start) "
-        f"BETWEEN toDate('{date_since}') "
-        f"AND toDate('{date_until}') "
-        f"GROUP BY ds, ad_id"
-        for t in DAILY_STAGING_TABLES
-    ])
-
     client = _get_client(CORE_DB)
 
     rows_before = _count(
@@ -466,31 +442,34 @@ def load_geo_daily(
     )
     _delete(client, CORE_DB, table, date_since, date_until)
 
+    lookup = _daily_media_lookup(date_since, date_until)
+
     insert_sql = (
         f"INSERT INTO {CORE_DB}.{table} "
         f"SELECT"
-        f" g.date_start AS date_start,"
-        f" g.date_stop AS date_stop,"
-        f" g.campaign_id AS campaign_id,"
-        f" g.campaign_name AS campaign_name,"
+        f" g.date_start,"
+        f" g.date_stop,"
+        f" g.campaign_id,"
+        f" g.campaign_name,"
         f" NULL AS campaign_status,"
         f" NULL AS campaign_effective_status,"
-        f" g.adset_id AS adset_id,"
-        f" g.adset_name AS adset_name,"
-        f" g.ad_id AS ad_id,"
-        f" g.ad_name AS ad_name,"
-        f" g.objective AS objective,"
-        f" g.country AS country,"
-        f" g.region AS region,"
-        f" g.spend AS spend,"
-        f" g.impressions AS impressions,"
-        f" g.reach AS reach,"
-        f" g.frequency AS frequency,"
+        f" g.adset_id,"
+        f" g.adset_name,"
+        f" g.ad_id,"
+        f" g.ad_name,"
+        f" g.objective,"
+        f" g.country,"
+        f" g.region,"
+        f" g.spend,"
+        f" g.impressions,"
+        f" g.reach,"
+        f" g.frequency,"
         f" if(g.impressions>0,"
-        f"    g.spend/g.impressions*1000, NULL) AS cpm,"
-        f" g.clicks AS clicks,"
+        f"    g.spend/g.impressions*1000,"
+        f"    NULL) AS cpm,"
+        f" g.clicks,"
         f" g.inline_link_clicks AS link_clicks,"
-        f" g.ctr AS ctr,"
+        f" g.ctr,"
         f" if(g.inline_link_clicks>0,"
         f"    g.spend/g.inline_link_clicks,"
         f"    NULL) AS cost_per_link_clicks,"
@@ -499,8 +478,8 @@ def load_geo_daily(
         f" NULL AS daily_budget,"
         f" NULL AS lifetime_budget,"
         f" now() AS loaded_at"
-        f" FROM {STAGING_DB}.{staging_geo} g"
-        f" LEFT JOIN ({_daily_union}) m"
+        f" FROM {STAGING_DB}.{GEO_TABLE} g"
+        f" LEFT JOIN ({lookup}) m"
         f" ON g.ad_id = m.ad_id"
         f" AND g.date_start = m.ds"
         f" WHERE g.date_start"
@@ -509,11 +488,9 @@ def load_geo_daily(
     )
 
     client.command(insert_sql)
-
     rows_after = _count(
         client, CORE_DB, table, date_since, date_until
     )
-
     instagram_etl_logger.log_table_load(
         run_id=run_id,
         layer="core",
@@ -528,7 +505,6 @@ def load_geo_daily(
         min_loaded_date=date_since,
         max_loaded_date=date_until,
     )
-
     print(
         f"[CORE] {table}: "
         f"before={rows_before}, after={rows_after}"
@@ -538,8 +514,6 @@ def load_geo_daily(
 
 # ============================================================
 # 5. instagram_ads_core_device_daily_level
-# Источник: paid_ads_device_daily_level_staging
-# media_type — JOIN с daily_ad staging
 # ============================================================
 
 def load_device_daily(
@@ -549,19 +523,6 @@ def load_device_daily(
     date_until: str,
 ) -> int:
     table = "instagram_ads_core_device_daily_level"
-    staging_dev = "paid_ads_device_daily_level_staging"
-
-    _daily_union = " UNION ALL ".join([
-        f"SELECT toDate(date_start) AS ds, ad_id, "
-        f"any(media_type) AS mt "
-        f"FROM {STAGING_DB}.{t} "
-        f"WHERE toDate(date_start) "
-        f"BETWEEN toDate('{date_since}') "
-        f"AND toDate('{date_until}') "
-        f"GROUP BY ds, ad_id"
-        for t in DAILY_STAGING_TABLES
-    ])
-
     client = _get_client(CORE_DB)
 
     rows_before = _count(
@@ -569,33 +530,36 @@ def load_device_daily(
     )
     _delete(client, CORE_DB, table, date_since, date_until)
 
+    lookup = _daily_media_lookup(date_since, date_until)
+
     insert_sql = (
         f"INSERT INTO {CORE_DB}.{table} "
         f"SELECT"
-        f" d.date_start AS date_start,"
-        f" d.date_stop AS date_stop,"
-        f" d.campaign_id AS campaign_id,"
-        f" d.campaign_name AS campaign_name,"
+        f" d.date_start,"
+        f" d.date_stop,"
+        f" d.campaign_id,"
+        f" d.campaign_name,"
         f" NULL AS campaign_status,"
         f" NULL AS campaign_effective_status,"
-        f" d.adset_id AS adset_id,"
-        f" d.adset_name AS adset_name,"
-        f" d.ad_id AS ad_id,"
-        f" d.ad_name AS ad_name,"
-        f" d.objective AS objective,"
-        f" d.device_platform AS device_platform,"
-        f" d.impression_device AS impression_device,"
-        f" d.device_type AS device_type,"
-        f" d.os_type AS os_type,"
-        f" d.spend AS spend,"
-        f" d.impressions AS impressions,"
-        f" d.reach AS reach,"
-        f" d.frequency AS frequency,"
+        f" d.adset_id,"
+        f" d.adset_name,"
+        f" d.ad_id,"
+        f" d.ad_name,"
+        f" d.objective,"
+        f" d.device_platform,"
+        f" d.impression_device,"
+        f" d.device_type,"
+        f" d.os_type,"
+        f" d.spend,"
+        f" d.impressions,"
+        f" d.reach,"
+        f" d.frequency,"
         f" if(d.impressions>0,"
-        f"    d.spend/d.impressions*1000, NULL) AS cpm,"
-        f" d.clicks AS clicks,"
+        f"    d.spend/d.impressions*1000,"
+        f"    NULL) AS cpm,"
+        f" d.clicks,"
         f" d.inline_link_clicks AS link_clicks,"
-        f" d.ctr AS ctr,"
+        f" d.ctr,"
         f" if(d.inline_link_clicks>0,"
         f"    d.spend/d.inline_link_clicks,"
         f"    NULL) AS cost_per_link_clicks,"
@@ -604,8 +568,8 @@ def load_device_daily(
         f" NULL AS daily_budget,"
         f" NULL AS lifetime_budget,"
         f" now() AS loaded_at"
-        f" FROM {STAGING_DB}.{staging_dev} d"
-        f" LEFT JOIN ({_daily_union}) m"
+        f" FROM {STAGING_DB}.{DEVICE_TABLE} d"
+        f" LEFT JOIN ({lookup}) m"
         f" ON d.ad_id = m.ad_id"
         f" AND d.date_start = m.ds"
         f" WHERE d.date_start"
@@ -614,11 +578,9 @@ def load_device_daily(
     )
 
     client.command(insert_sql)
-
     rows_after = _count(
         client, CORE_DB, table, date_since, date_until
     )
-
     instagram_etl_logger.log_table_load(
         run_id=run_id,
         layer="core",
@@ -633,7 +595,6 @@ def load_device_daily(
         min_loaded_date=date_since,
         max_loaded_date=date_until,
     )
-
     print(
         f"[CORE] {table}: "
         f"before={rows_before}, after={rows_after}"
@@ -643,8 +604,6 @@ def load_device_daily(
 
 # ============================================================
 # 6. instagram_ads_core_gender_daily_level
-# Источник: paid_ads_gender_daily_level_staging
-# media_type — JOIN с daily_ad staging
 # ============================================================
 
 def load_gender_daily(
@@ -654,19 +613,6 @@ def load_gender_daily(
     date_until: str,
 ) -> int:
     table = "instagram_ads_core_gender_daily_level"
-    staging_gen = "paid_ads_gender_daily_level_staging"
-
-    _daily_union = " UNION ALL ".join([
-        f"SELECT toDate(date_start) AS ds, ad_id, "
-        f"any(media_type) AS mt "
-        f"FROM {STAGING_DB}.{t} "
-        f"WHERE toDate(date_start) "
-        f"BETWEEN toDate('{date_since}') "
-        f"AND toDate('{date_until}') "
-        f"GROUP BY ds, ad_id"
-        for t in DAILY_STAGING_TABLES
-    ])
-
     client = _get_client(CORE_DB)
 
     rows_before = _count(
@@ -674,30 +620,33 @@ def load_gender_daily(
     )
     _delete(client, CORE_DB, table, date_since, date_until)
 
+    lookup = _daily_media_lookup(date_since, date_until)
+
     insert_sql = (
         f"INSERT INTO {CORE_DB}.{table} "
         f"SELECT"
-        f" g.date_start AS date_start,"
-        f" g.date_stop AS date_stop,"
-        f" g.campaign_id AS campaign_id,"
-        f" g.campaign_name AS campaign_name,"
+        f" g.date_start,"
+        f" g.date_stop,"
+        f" g.campaign_id,"
+        f" g.campaign_name,"
         f" NULL AS campaign_status,"
         f" NULL AS campaign_effective_status,"
-        f" g.adset_id AS adset_id,"
-        f" g.adset_name AS adset_name,"
-        f" g.ad_id AS ad_id,"
-        f" g.ad_name AS ad_name,"
-        f" g.objective AS objective,"
-        f" g.gender_type AS gender_type,"
-        f" g.spend AS spend,"
-        f" g.impressions AS impressions,"
-        f" g.reach AS reach,"
-        f" g.frequency AS frequency,"
+        f" g.adset_id,"
+        f" g.adset_name,"
+        f" g.ad_id,"
+        f" g.ad_name,"
+        f" g.objective,"
+        f" g.gender_type,"
+        f" g.spend,"
+        f" g.impressions,"
+        f" g.reach,"
+        f" g.frequency,"
         f" if(g.impressions>0,"
-        f"    g.spend/g.impressions*1000, NULL) AS cpm,"
-        f" g.clicks AS clicks,"
+        f"    g.spend/g.impressions*1000,"
+        f"    NULL) AS cpm,"
+        f" g.clicks,"
         f" g.inline_link_clicks AS link_clicks,"
-        f" g.ctr AS ctr,"
+        f" g.ctr,"
         f" if(g.inline_link_clicks>0,"
         f"    g.spend/g.inline_link_clicks,"
         f"    NULL) AS cost_per_link_clicks,"
@@ -706,8 +655,8 @@ def load_gender_daily(
         f" NULL AS daily_budget,"
         f" NULL AS lifetime_budget,"
         f" now() AS loaded_at"
-        f" FROM {STAGING_DB}.{staging_gen} g"
-        f" LEFT JOIN ({_daily_union}) m"
+        f" FROM {STAGING_DB}.{GENDER_TABLE} g"
+        f" LEFT JOIN ({lookup}) m"
         f" ON g.ad_id = m.ad_id"
         f" AND g.date_start = m.ds"
         f" WHERE g.date_start"
@@ -716,11 +665,9 @@ def load_gender_daily(
     )
 
     client.command(insert_sql)
-
     rows_after = _count(
         client, CORE_DB, table, date_since, date_until
     )
-
     instagram_etl_logger.log_table_load(
         run_id=run_id,
         layer="core",
@@ -735,7 +682,6 @@ def load_gender_daily(
         min_loaded_date=date_since,
         max_loaded_date=date_until,
     )
-
     print(
         f"[CORE] {table}: "
         f"before={rows_before}, after={rows_after}"
@@ -744,7 +690,7 @@ def load_gender_daily(
 
 
 # ============================================================
-# Главная функция
+# Entry point
 # ============================================================
 
 def run_staging_to_core(
@@ -753,47 +699,25 @@ def run_staging_to_core(
     date_since: str,
     date_until: str,
 ) -> int:
-    """Запускает все core загрузки."""
     total = 0
-
     with instagram_etl_logger.etl_step(
         run_id=run_id,
         step_name="staging_to_core",
         step_order=3,
         target_database=CORE_DB,
     ) as step:
-
-        total += load_daily_campaign(
-            run_id=run_id,
-            date_since=date_since,
-            date_until=date_until,
-        )
-        total += load_daily_ad(
-            run_id=run_id,
-            date_since=date_since,
-            date_until=date_until,
-        )
-        total += load_hourly_ad(
-            run_id=run_id,
-            date_since=date_since,
-            date_until=date_until,
-        )
-        total += load_geo_daily(
-            run_id=run_id,
-            date_since=date_since,
-            date_until=date_until,
-        )
-        total += load_device_daily(
-            run_id=run_id,
-            date_since=date_since,
-            date_until=date_until,
-        )
-        total += load_gender_daily(
-            run_id=run_id,
-            date_since=date_since,
-            date_until=date_until,
-        )
-
+        for loader in (
+            load_daily_campaign,
+            load_daily_ad,
+            load_hourly_ad,
+            load_geo_daily,
+            load_device_daily,
+            load_gender_daily,
+        ):
+            total += loader(
+                run_id=run_id,
+                date_since=date_since,
+                date_until=date_until,
+            )
         step["output_rows"] = total
-
     return total

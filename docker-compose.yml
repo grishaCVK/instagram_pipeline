@@ -9,6 +9,7 @@ services:
       - postgres
     volumes:
       - ./storage:/app/storage
+      - .:/app
     command: python main.py
 
   clickhouse:

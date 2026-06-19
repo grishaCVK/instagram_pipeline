@@ -95,12 +95,21 @@ def create_image_embedding(image_path: str) -> list[float]:
 
 def get_image_assets_for_ad(ad_id: str) -> list[dict[str, Any]]:
     """
-    Получает изображения для одного объявления.
+    Получает визуальные assets для одного объявления.
 
-    Обрабатываем только IMAGE:
-    - если media_type = IMAGE, берём основную картинку
-    - если media_type = CAROUSEL_ALBUM, берём только children IMAGE
-    - если media_type = VIDEO, пропускаем
+    IMAGE:
+    - embedding строим по media_url
+    - image_url = media_url
+    - video_url = None
+
+    VIDEO:
+    - embedding строим по thumbnail_url
+    - image_url = thumbnail_url
+    - video_url = media_url
+
+    CAROUSEL_ALBUM:
+    - IMAGE children обрабатываем как image
+    - VIDEO children обрабатываем по thumbnail_url
     """
     creative_response = graph_api.get_ad_creative(ad_id)
     creative = creative_response.get("creative") or {}
@@ -124,9 +133,31 @@ def get_image_assets_for_ad(ad_id: str) -> list[dict[str, Any]]:
             image_assets.append(
                 {
                     "media_url": media_url,
+                    "image_url": media_url,
+                    "video_url": None,
                     "media_type": "IMAGE",
                     "media_product_type": media_product_type,
                     "asset_position": 1,
+                    "frame_percent": None,
+                }
+            )
+
+        return image_assets
+
+    if media_type == "VIDEO":
+        video_url = media_response.get("media_url")
+        thumbnail_url = media_response.get("thumbnail_url")
+
+        if thumbnail_url:
+            image_assets.append(
+                {
+                    "media_url": thumbnail_url,
+                    "image_url": thumbnail_url,
+                    "video_url": video_url,
+                    "media_type": "VIDEO",
+                    "media_product_type": media_product_type,
+                    "asset_position": 1,
+                    "frame_percent": None,
                 }
             )
 
@@ -139,21 +170,33 @@ def get_image_assets_for_ad(ad_id: str) -> list[dict[str, Any]]:
         for position, child in enumerate(children_data, start=1):
             child_media_type = child.get("media_type")
             child_media_url = child.get("media_url")
+            child_thumbnail_url = child.get("thumbnail_url")
 
-            if child_media_type != "IMAGE":
-                continue
+            if child_media_type == "IMAGE" and child_media_url:
+                image_assets.append(
+                    {
+                        "media_url": child_media_url,
+                        "image_url": child_media_url,
+                        "video_url": None,
+                        "media_type": "IMAGE",
+                        "media_product_type": media_product_type,
+                        "asset_position": position,
+                        "frame_percent": None,
+                    }
+                )
 
-            if not child_media_url:
-                continue
-
-            image_assets.append(
-                {
-                    "media_url": child_media_url,
-                    "media_type": "IMAGE",
-                    "media_product_type": media_product_type,
-                    "asset_position": position,
-                }
-            )
+            if child_media_type == "VIDEO" and child_thumbnail_url:
+                image_assets.append(
+                    {
+                        "media_url": child_thumbnail_url,
+                        "image_url": child_thumbnail_url,
+                        "video_url": child_media_url,
+                        "media_type": "VIDEO",
+                        "media_product_type": media_product_type,
+                        "asset_position": position,
+                        "frame_percent": None,
+                    }
+                )
 
         return image_assets
 
@@ -202,7 +245,11 @@ def process_ads_insights_image_embeddings(
     pgvector_db.delete_ad_embeddings_for_ads(ad_ids)
 
     for ad_id, row in unique_ads.items():
-        image_assets = get_image_assets_for_ad(ad_id)
+        try:
+            image_assets = get_image_assets_for_ad(ad_id)
+        except Exception as error:
+            print(f"{ad_id}: failed to get media assets, skipped, error={error}")
+            continue
 
         if not image_assets:
             print(f"{ad_id}: no image assets, skipped")
@@ -225,11 +272,16 @@ def process_ads_insights_image_embeddings(
                     media_type=asset.get("media_type"),
                     media_product_type=asset.get("media_product_type"),
                     asset_position=asset.get("asset_position"),
+                    image_url=asset.get("image_url"),
+                    video_url=asset.get("video_url"),
+                    frame_percent=asset.get("frame_percent"),
+                    embedding_model=MODEL_NAME,
                     embedding=embedding,
                 )
 
                 print(
-                    f"{ad_id}: image embedding inserted, "
+                    f"{ad_id}: embedding inserted, "
+                    f"media_type={asset.get('media_type')}, "
                     f"asset_position={asset.get('asset_position')}"
                 )
 

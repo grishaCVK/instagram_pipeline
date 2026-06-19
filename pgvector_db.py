@@ -40,13 +40,23 @@ def insert_ad_embedding(
     media_type: str | None,
     media_product_type: str | None,
     asset_position: int | None,
+    image_url: str | None,
+    video_url: str | None,
+    frame_percent: int | None,
+    embedding_model: str | None,
     embedding: list[float],
 ) -> None:
     """
     Сохраняет один embedding рекламного креатива в PostgreSQL.
 
-    Одна строка = один embedding для изображения.
-    Видео мы не обрабатываем.
+    IMAGE:
+    - image_url заполнен
+    - video_url = NULL
+
+    VIDEO:
+    - image_url = thumbnail_url
+    - video_url = ссылка на видео/media_url
+    - embedding строится по thumbnail
     """
     if len(embedding) != 512:
         raise ValueError(
@@ -69,7 +79,13 @@ def insert_ad_embedding(
             media_type,
             media_product_type,
             asset_position,
-            embedding
+            image_url,
+            video_url,
+            frame_percent,
+            embedding_model,
+            embedding,
+            created_at,
+            updated_at
         )
         VALUES
         (
@@ -83,7 +99,13 @@ def insert_ad_embedding(
             %s,
             %s,
             %s,
-            %s::vector
+            %s,
+            %s,
+            %s,
+            %s,
+            %s::vector,
+            now(),
+            now()
         )
     """
 
@@ -98,6 +120,10 @@ def insert_ad_embedding(
         media_type,
         media_product_type,
         asset_position,
+        image_url,
+        video_url,
+        frame_percent,
+        embedding_model,
         embedding_vector,
     )
 

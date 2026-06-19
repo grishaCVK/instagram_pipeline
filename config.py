@@ -25,6 +25,19 @@ CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "instagram_ads")
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 
+CLICKHOUSE_STAGING_DB = os.getenv(
+    "CLICKHOUSE_STAGING_DB", "instagram_staging"
+)
+CLICKHOUSE_RAW_DB = os.getenv(
+    "CLICKHOUSE_RAW_DB", "instagram_raw"
+)
+CLICKHOUSE_CORE_DB = os.getenv(
+    "CLICKHOUSE_CORE_DB", "instagram_core"
+)
+CLICKHOUSE_METADATA_DB = os.getenv(
+    "CLICKHOUSE_METADATA_DB", "etl_metadata"
+)
+
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 POSTGRES_DB = os.getenv("POSTGRES_DB", "instagram_embeddings")

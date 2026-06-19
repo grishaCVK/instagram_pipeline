@@ -1,4 +1,5 @@
 import json
+import time
 
 from datetime import datetime
 from typing import Any
@@ -50,29 +51,59 @@ def format_meta_datetime_to_almaty(value: str | None) -> str | None:
 def graph_get(endpoint: str, params: dict | None = None) -> dict:
     """
     Универсальная функция для одного GET-запроса к Meta Graph API.
+
+    Делает несколько retry на временные сетевые ошибки:
+    DNS failure, timeout, connection reset.
     """
 
     if params is None:
         params = {}
 
-    params["access_token"] = config.META_ACCESS_TOKEN
+    request_params = dict(params)
+    request_params["access_token"] = config.META_ACCESS_TOKEN
 
     url = f"{BASE_URL}{endpoint}"
 
-    response = requests.get(url, params=params, timeout=30)
+    last_error: Exception | None = None
 
-    try:
-        data = response.json()
-    except ValueError:
-        raise GraphAPIError(f"Invalid JSON response: {response.text}")
+    for attempt in range(1, 6):
+        try:
+            response = requests.get(
+                url,
+                params=request_params,
+                timeout=30,
+            )
 
-    if response.status_code != 200:
-        raise GraphAPIError(f"Graph API error: {data}")
+            try:
+                data = response.json()
+            except ValueError:
+                raise GraphAPIError(
+                    f"Invalid JSON response: {response.text}"
+                )
 
-    if "error" in data:
-        raise GraphAPIError(f"Graph API error: {data['error']}")
+            if response.status_code != 200:
+                raise GraphAPIError(f"Graph API error: {data}")
 
-    return data
+            if "error" in data:
+                raise GraphAPIError(f"Graph API error: {data['error']}")
+
+            return data
+
+        except requests.exceptions.RequestException as error:
+            last_error = error
+            wait_seconds = min(60, attempt * 10)
+
+            print(
+                f"Graph API network error: endpoint={endpoint}, "
+                f"attempt={attempt}/5, wait={wait_seconds}s, "
+                f"error={error}"
+            )
+
+            time.sleep(wait_seconds)
+
+    raise GraphAPIError(
+        f"Graph API request failed after retries: {last_error}"
+    )
 
 
 def graph_get_all_pages(endpoint: str, params: dict | None = None) -> dict:
@@ -1011,6 +1042,117 @@ def get_ads_insights_device_daily(
         "level": "ad",
         "time_increment": 1,
         "breakdowns": "device_platform,impression_device",
+        "limit": 100,
+        "time_range": json.dumps(time_range),
+    }
+
+    return graph_get_all_pages(endpoint, params)
+
+
+def get_ads_insights_daily(
+    date_since: str,
+    date_until: str,
+) -> dict:
+    """
+    Получает статистику по объявлениям за день
+    без hourly breakdown.
+ 
+    Отличия от get_ads_insights:
+    - нет breakdowns=hourly
+    - reach/frequency корректны на дневном уровне
+    - одна строка на (ad + день)
+    """
+    endpoint = f"/{config.AD_ACCOUNT_ID}/insights"
+ 
+    fields = [
+        "date_start",
+        "date_stop",
+        "campaign_id",
+        "campaign_name",
+        "adset_id",
+        "adset_name",
+        "ad_id",
+        "ad_name",
+        "objective",
+        "spend",
+        "impressions",
+        "reach",
+        "frequency",
+        "cpm",
+        "clicks",
+        "inline_link_clicks",
+        "inline_link_click_ctr",
+        "ctr",
+        "cpc",
+        "actions",
+        "cost_per_action_type",
+        "video_play_actions",
+        "video_p25_watched_actions",
+        "video_p50_watched_actions",
+        "video_p75_watched_actions",
+        "video_p100_watched_actions",
+        "video_avg_time_watched_actions",
+    ]
+ 
+    time_range = {
+        "since": date_since,
+        "until": date_until,
+    }
+ 
+    params = {
+        "fields": ",".join(fields),
+        "level": "ad",
+        "time_increment": 1,
+        "limit": 100,
+        "time_range": json.dumps(time_range),
+    }
+ 
+    return graph_get_all_pages(endpoint, params)
+ 
+ 
+def get_ads_insights_gender_daily(
+    date_since: str,
+    date_until: str,
+) -> dict:
+    """
+    Получает статистику по age + gender breakdown.
+ 
+    Одна строка = (ad + день + age + gender).
+    age: 18-24, 25-34, 35-44, 45-54, 55-64, 65+
+    gender: male, female, unknown
+    """
+    endpoint = f"/{config.AD_ACCOUNT_ID}/insights"
+ 
+    fields = [
+        "date_start",
+        "date_stop",
+        "campaign_id",
+        "campaign_name",
+        "adset_id",
+        "adset_name",
+        "ad_id",
+        "ad_name",
+        "objective",
+        "spend",
+        "impressions",
+        "reach",
+        "frequency",
+        "cpm",
+        "clicks",
+        "inline_link_clicks",
+        "ctr",
+    ]
+ 
+    time_range = {
+        "since": date_since,
+        "until": date_until,
+    }
+ 
+    params = {
+        "fields": ",".join(fields),
+        "level": "ad",
+        "time_increment": 1,
+        "breakdowns": "age,gender",
         "limit": 100,
         "time_range": json.dumps(time_range),
     }
